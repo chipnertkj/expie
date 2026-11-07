@@ -1,0 +1,13 @@
+[package]
+name = "expie-elab"
+version = "0.0.0"
+description = "Fundamental architecture library for expie"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+generativity = { workspace = true }
+derive_more = { workspace = true, features = ["debug", "display"] }
+
+[lints]
+workspace = true
