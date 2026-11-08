@@ -5,15 +5,26 @@ use crate::identity::{
     index::{ErasedIndex, ScopedIndex},
 };
 
-#[must_use = "uniquely identifies a node in its hierarchy"]
+/// A unique identifier for a [`Node`] in a [`Hierarchy`].
+///
+/// Allocating an identifier is done through the [`Hierarchy::push_node`]
+/// method, which registers a node through its relationship to other nodes in
+/// a tree.
 #[derive(
     Clone, Copy, derive_more::Debug, derive_more::Display, PartialEq, Eq, Hash, PartialOrd, Ord,
 )]
 #[display("id:{}", _0)]
 #[debug("id:{:?}", _0)]
-pub struct NodeId<'id>(ScopedIndex<'id>);
+pub struct NodeId<'id>(
+    /// Identity information for the node.
+    /// This index corresponds to the position of the node in the
+    /// [`ScopedIndexVec`] inside of its [`Hierarchy`].
+    ///
+    /// [`ScopedIndexVec`]: crate::identity::index::ScopedIndexVec
+    ScopedIndex<'id>,
+);
 
-impl NodeId<'_> {
+impl<'id> NodeId<'id> {
     /// Returns `true` if this is the first node allocated in the
     /// [`Hierarchy`].
     #[must_use = "result of an equality check"]
@@ -22,7 +33,7 @@ impl NodeId<'_> {
         index_id.is_initial()
     }
 
-    /// Coerce `self` into an [`ErasedNodeId`], erasing the
+    /// Convert `self` into an [`ErasedNodeId`], erasing the
     /// [invariant lifetime].
     ///
     /// This allows the ID to be used outside the bounds of the lifetime guard.
@@ -30,9 +41,17 @@ impl NodeId<'_> {
     /// accurately represents the original node it referenced.
     ///
     /// [invariant lifetime]: generativity::Guard
+    #[must_use = "conversion to a lifetime-erased identifier"]
     pub const fn erased(self) -> ErasedNodeId {
         let Self(index_id) = self;
         ErasedNodeId(index_id.erased())
+    }
+
+    /// Extract a [`ScopedIndex`] from a [`NodeId`].
+    #[must_use = "extraction of an index value"]
+    const fn to_index(self) -> ScopedIndex<'id> {
+        let Self(scoped_index) = self;
+        scoped_index
     }
 }
 
@@ -47,25 +66,34 @@ impl<'id> Hierarchy<'id> {
     ///
     /// If `parent` is set to [`None`], the node will be treated as a *root
     /// node*.
-    pub fn push_node(&mut self, parent: Option<NodeId<'id>>) -> NodeId<'id> {
-        let node_id = NodeId(self.nodes.push(Node {
+    #[must_use = "newly allocated identifier, you probably want to keep this"]
+    // TODO: tighten this vis to future cx module
+    pub(crate) fn push_node(&mut self, parent: Option<NodeId<'id>>) -> NodeId<'id> {
+        // Push the node to the index vector.
+        let node_index = self.nodes.push(Node {
             parent,
             children: Vec::new(),
-        }));
-        if let Some(NodeId(parent_id)) = parent {
-            self.nodes.get_mut(parent_id).children.push(node_id);
+        });
+        // Convert the index to a node ID.
+        let node_id = NodeId(node_index);
+        // If the node has a parent, add it to the parent's children.
+        if let Some(parent_id) = parent {
+            self.node_mut(parent_id).children.push(node_id);
         }
+        // Return the node ID.
         node_id
     }
 
     /// Get a reference to a [`Node`] by its [`NodeId`].
-    ///
-    /// Node IDs can be retrieved only from the [`Self::push_node`] operation
-    /// that added them to the [`Hierarchy`].
     #[must_use = "returns a reference to the looked-up node"]
-    pub fn node(&self, node_id: NodeId<'id>) -> &Node<'id> {
-        let NodeId(index_id) = node_id;
-        self.nodes.get(index_id)
+    pub(in crate::identity) fn node(&self, node_id: NodeId<'id>) -> &Node<'id> {
+        self.nodes.get(node_id.to_index())
+    }
+
+    /// Get a mutable reference to a [`Node`] by its [`NodeId`].
+    #[must_use = "returns a mutable reference to the looked-up node"]
+    fn node_mut(&mut self, node_id: NodeId<'id>) -> &mut Node<'id> {
+        self.nodes.get_mut(node_id.to_index())
     }
 
     /// Iterate root [`Node`]s registered in the [`Hierarchy`], by their
@@ -86,7 +114,7 @@ impl<'id> Hierarchy<'id> {
     /// The first [`Node`] allocated in this [`Hierarchy`], if any.
     ///
     /// See [`Hierarchy::push_node`] for information on allocation order.
-    #[must_use]
+    #[must_use = "returns the first root node, if any"]
     pub fn main_root(&self) -> Option<NodeId<'id>> {
         self.nodes
             .iter_indexed()
@@ -102,6 +130,9 @@ impl<'id> Hierarchy<'id> {
 /// accurately represents the original node it referenced.
 ///
 /// [invariant lifetime]: generativity::Guard
+#[derive(derive_more::Debug, derive_more::Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[display("id:{}", _0)]
+#[debug("{:?}", _0)]
 pub struct ErasedNodeId(ErasedIndex);
 
 impl ErasedNodeId {

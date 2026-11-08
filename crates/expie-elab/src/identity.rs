@@ -1,10 +1,14 @@
 //! Identification and hierarchical relationships between arbitrary entities.
 
 mod index;
+mod marker;
 mod node_id;
 
 use self::index::ScopedIndexVec;
-pub use self::node_id::NodeId;
+pub use self::{
+    marker::{Marker, MarkerRef},
+    node_id::NodeId,
+};
 
 /// A relationship representing a uniquely positioned entity within a
 /// [`Hierarchy`].
@@ -14,9 +18,8 @@ pub use self::node_id::NodeId;
 ///
 /// This relationship is represented purely by [`NodeId`]s created by
 /// [`Hierarchy::push_node`] – the method used to register nodes.
-#[must_use = "represents a hierarchical relationship"]
 #[derive(Debug, Clone)]
-pub struct Node<'id> {
+struct Node<'id> {
     /// The parent of this entity, if any.
     parent: Option<NodeId<'id>>,
     /// The children of this entity, in allocation order.
@@ -30,6 +33,9 @@ pub struct Node<'id> {
 /// This structure, via relationships represented by [`Node`]s, represents a
 /// tree of arbitrary entities, each uniquely identified by a [`NodeId`].
 ///
+/// It also establishes a referencing scheme via [`Marker`]s, which can be used
+/// to refer to nodes anonymously, without knowing their [`NodeId`]s upfront.
+///
 /// All data is scoped to the [invariant lifetime] `'id`, and any indices
 /// constrained by this unique lifetime are guaranteed to accurately reference
 /// the original entity they were allocated for.
@@ -38,12 +44,16 @@ pub struct Node<'id> {
 /// from it.
 ///
 /// [invariant lifetime]: generativity::Guard
-#[must_use = "represents a hierarchical structure of entities"]
 #[derive(Debug, Clone)]
 pub struct Hierarchy<'id> {
-    /// The nodes registered in this hierarchy.
-    /// This vector is to only be pushed to, and never removed from.
+    /// The [`Node`]s registered in this hierarchy.
     nodes: ScopedIndexVec<'id, Node<'id>>,
+    /// The [`Marker`]s registered in this hierarchy.
+    ///
+    /// A marker slot (i.e. index) that holds [`None`] was registered, but its
+    /// entity was never tagged. Entity [`Node`]s must be registered with
+    /// [`Hierarchy::push_node_marked`] in order to be considered tagged.
+    markers: ScopedIndexVec<'id, Option<NodeId<'id>>>,
 }
 
 impl<'id> Hierarchy<'id> {
@@ -55,9 +65,11 @@ impl<'id> Hierarchy<'id> {
     /// the indices of the nodes are valid for that lifetime.
     ///
     /// [invariant lifetime]: generativity::Guard
+    #[must_use = "newly allocated structure"]
     pub const fn new(gen_id: generativity::Id<'id>) -> Self {
         Self {
             nodes: ScopedIndexVec::new(gen_id),
+            markers: ScopedIndexVec::new(gen_id),
         }
     }
 

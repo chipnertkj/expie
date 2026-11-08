@@ -3,7 +3,6 @@
 /// A unique identifier, scoped by an [invariant lifetime guard].
 ///
 /// [invariant lifetime guard]: generativity::Guard
-#[must_use = "unique identifier"]
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, derive_more::Display, derive_more::Debug,
 )]
@@ -27,10 +26,11 @@ impl ScopedIndex<'_> {
         self.index == 0
     }
 
-    /// Coerce `self` into an [`ErasedIndex`], strapping it of the
+    /// Convert `self` into an [`ErasedIndex`], stripping it of the
     /// [invariant lifetime].
     ///
     /// [invariant lifetime]: generativity::Guard
+    #[must_use = "conversion to an erased index"]
     pub const fn erased(self) -> ErasedIndex {
         ErasedIndex(self.index)
     }
@@ -59,6 +59,7 @@ impl<'id, T> ScopedIndexVec<'id, T> {
     /// [invariant lifetime].
     ///
     /// [invariant lifetime]: generativity::Guard
+    #[must_use = "newly allocated structure"]
     pub const fn new(gen_id: generativity::Id<'id>) -> Self {
         Self {
             inner: Vec::new(),
@@ -97,6 +98,7 @@ impl<'id, T> ScopedIndexVec<'id, T> {
     /// said lifetime.
     ///
     /// [invariant lifetime]: generativity::Guard
+    #[must_use = "newly allocated index, you probably want to keep this"]
     pub fn push(&mut self, value: T) -> ScopedIndex<'id> {
         let gen_id = self.gen_id;
         let index = self.inner.len();
@@ -105,13 +107,31 @@ impl<'id, T> ScopedIndexVec<'id, T> {
     }
 
     /// Returns a reference to the entry at `id`.
+    ///
+    /// # Panics
+    ///
+    /// If the [`ScopedIndex`] was forged (i.e. we are unable to find the
+    /// corresponding entry for this index, e.g. if it was not generated
+    /// by [`ScopedIndexVec::push`] for this vector), this function will panic.
+    #[must_use = "getter"]
     pub fn get(&self, id: ScopedIndex<'id>) -> &T {
-        &self.inner[id.index]
+        let raw_index = id.erased().raw_value();
+        self.inner.get(raw_index).expect("scoped index was forged")
     }
 
     /// Returns a mutable reference to the entry at `id`.
+    ///
+    /// # Panics
+    ///
+    /// If the [`ScopedIndex`] was forged (i.e. we are unable to find the
+    /// corresponding entry for this index, e.g. if it was not generated
+    /// by [`ScopedIndexVec::push`] for this vector), this function will panic.
+    #[must_use = "getter"]
     pub fn get_mut(&mut self, id: ScopedIndex<'id>) -> &mut T {
-        &mut self.inner[id.index]
+        let raw_index = id.erased().raw_value();
+        self.inner
+            .get_mut(raw_index)
+            .expect("scoped index was forged")
     }
 }
 
@@ -123,12 +143,19 @@ impl<'id, T> ScopedIndexVec<'id, T> {
 ///
 /// [invariant lifetime]: generativity::Guard
 /// [original entry]: ScopedIndexVec::push
-pub(in crate::identity) struct ErasedIndex(usize);
+#[derive(derive_more::Debug, derive_more::Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[display("index:{}", _0)]
+#[debug("{:?}", _0)]
+pub(in crate::identity) struct ErasedIndex(
+    /// The actual raw index value.
+    usize,
+);
 
 impl ErasedIndex {
     /// Returns the actual underlying index of the [`ErasedIndex`].
     #[must_use = "getter"]
     pub const fn raw_value(self) -> usize {
-        self.0
+        let Self(raw_index) = self;
+        raw_index
     }
 }
