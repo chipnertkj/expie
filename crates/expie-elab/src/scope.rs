@@ -55,10 +55,11 @@ impl<'id, H: Host> Scope<'id, H> {
     }
 }
 
-/// An extension trait for [`Host`] that provides a method for writing code
+/// An extension trait for [`Host`] that provides [a method] for writing code
 /// scoped by an invariant [generative lifetime guard].
 ///
 /// [generative lifetime guard]: generativity::make_guard!
+/// [a method]: Self::scope
 pub trait HostScope: Host {
     /// Create a new [`Scope`] and lower a [`Term`] inside it. Both closures
     /// execute behind an invariant [generative lifetime guard].

@@ -133,13 +133,14 @@ where
 }
 
 /// Wrapper newtype.
-/// Allows usage of any [`IntoIterator`], where [`Item`] is a [`Term`], as a
+/// Allows usage of any [`IntoIterator`] – where [`Item`] is a [`Term`] – as a
 /// sequence term.
 ///
 /// Implementing term for `I: IntoIterator` directly is not possible due to
-/// trait coherence rules.
+/// [trait coherence rules].
 ///
 /// [`Item`]: IntoIterator::Item
+/// [trait coherence rules]: https://doc.rust-lang.org/reference/items/implementations.html#r-items.impl.trait.orphan-rule.def
 #[derive(Debug, derive_more::From)]
 pub struct TermIter<I>(
     /// Inner iterable.
