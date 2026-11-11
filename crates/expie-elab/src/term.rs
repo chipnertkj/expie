@@ -21,7 +21,7 @@ use crate::{Host, ScopeCx, for_each_tuple_12};
 
 /// A term is a unit of data in an Abstract Syntax Tree (AST).
 ///
-/// `expie` does not specify the actual AST in use.
+/// `expie-base` does not specify the actual AST in use.
 /// This architecture instead allows us to represent arbitrary declarative trees
 /// as compile-time syntax, which can be lowered down into runtime details.
 ///
