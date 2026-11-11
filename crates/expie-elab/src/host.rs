@@ -9,15 +9,9 @@ use crate::Hierarchy;
 /// Its responsibility is to provide arbitrary capabilities, which allow complex
 /// terms to [`lower`] domain-specific details into the host's [`Store`].
 ///
-/// A term may require a generic host `H` to provide capabilities for lowering
-/// the term, by restricting an implementation with [`H: HasLayer<L>`], where
-/// `L` is a concrete [`Layer`] type.
-///
 /// [`Term`]: crate::Term
 /// [`Store`]: Self::Store
 /// [`lower`]: crate::Term::lower
-/// [`H: HasLayer<L>`]: crate::HasLayer
-/// [`Layer`]: crate::Layer
 pub trait Host {
     /// This is the type returned by [`new_store`].
     ///
