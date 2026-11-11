@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 generativity = { workspace = true }
-derive_more = { workspace = true, features = ["debug", "display"] }
+derive_more = { workspace = true, features = ["debug", "display", "from"] }
 
 [lints]
 workspace = true

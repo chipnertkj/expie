@@ -78,3 +78,23 @@ pub trait Host {
     where
         Self: Sized;
 }
+
+/// Panicking host implementation for `std::convert::Infallible`.
+///
+/// This exists mostly to make doctests and examples easier to write.
+impl Host for std::convert::Infallible {
+    type Store<'id> = Self;
+    type Output<'id> = Self;
+
+    fn new_store<'id>(&self) -> Self::Store<'id> {
+        panic!("acquired reference to std::convert::Infallible")
+    }
+
+    fn finalize_scope<'id>(
+        &self,
+        _hierarchy: Hierarchy<'id>,
+        _store: Self::Store<'id>,
+    ) -> Self::Output<'id> {
+        self.new_store()
+    }
+}

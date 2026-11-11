@@ -91,6 +91,97 @@ pub trait Term<'id, H: Host + ?Sized, M> {
     fn lower(self, cx: &mut ScopeCx<'id, '_, H>);
 }
 
+/// Object-safe lowering for a [`Box`]ed [`Term`].
+///
+/// [`Term::lower`] takes `self` as a parameter, which implies `Self: Sized`.
+/// This prevents types like `dyn Term` from being used in reguar term position.
+///
+/// `ErasedTerm` provides an escape hatch for this limitation, allowing one to
+/// take a boxed `Self` term and lower it.
+///
+/// Instead of taking a `Box<dyn Term>` as an argument, `Term` in
+/// [`ErasedTerm::lower_boxed`] is replaced with a boxed `ErasedTerm` / `Self`,
+/// enabling this pattern. Compatibility with `Term` is achieved via blanket
+/// implementation of `ErasedTerm` for every [`Sized`] term.
+pub trait ErasedTerm<'id, H: Host + ?Sized, M> {
+    /// [`Term::lower`] equivalent for a [`?Sized`](Sized) [`Term`].
+    /// Takes a [`Box`]ed [`ErasedTerm`] as the argument instead.
+    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H>);
+}
+
+/// Blanket implementation of [`ErasedTerm`] for every [`Sized`] [`Term`].
+impl<'id, H, M, T> ErasedTerm<'id, H, M> for T
+where
+    H: Host + ?Sized,
+    T: Term<'id, H, M>,
+{
+    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H>) {
+        // Because T is Sized here, (*self) moves T out of the box cleanly.
+        (*self).lower(cx);
+    }
+}
+
+/// Blanket implementation of [`Term`] for every [`Box`]ed [`ErasedTerm`].
+impl<'id, H, M, T> Term<'id, H, M> for Box<T>
+where
+    H: Host + ?Sized,
+    T: ErasedTerm<'id, H, M>,
+{
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+        self.lower_boxed(cx);
+    }
+}
+
+/// Wrapper newtype.
+/// Allows usage of any [`IntoIterator`], where [`Item`] is a [`Term`], as a
+/// sequence term.
+///
+/// Implementing term for `I: IntoIterator` directly is not possible due to
+/// trait coherence rules.
+///
+/// [`Item`]: IntoIterator::Item
+#[derive(Debug, derive_more::From)]
+pub struct TermIter<I>(
+    /// Inner iterable.
+    pub I,
+);
+
+/// Implement sequence [`Term`] for [`TermIter`].
+impl<'id, H, M, T, I> Term<'id, H, M> for TermIter<I>
+where
+    H: Host + ?Sized,
+    T: Term<'id, H, M>,
+    I: IntoIterator<Item = T>,
+{
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+        for item in self.0 {
+            item.lower(cx);
+        }
+    }
+}
+
+/// Enable `.into_iter()` / `.collect()` directly on [`TermIter`].
+impl<A, I> FromIterator<A> for TermIter<I>
+where
+    I: FromIterator<A>,
+{
+    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+        Self(I::from_iter(iter))
+    }
+}
+
+/// Implement [`IntoIterator`] for [`TermIter`].
+impl<I, T> IntoIterator for TermIter<I>
+where
+    I: IntoIterator<Item = T>,
+{
+    type Item = T;
+    type IntoIter = I::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 /// Implement sequence [`Term`] for a tuple of terms.
 macro_rules! impl_tuple_term {
     ($($name:ident),* $(,)?) => {
@@ -109,3 +200,42 @@ macro_rules! impl_tuple_term {
 }
 
 for_each_tuple_12!(impl_tuple_term);
+
+/// Implement sequence [`Term`] for [`Option`] of a term.
+impl<'id, H, M, T> Term<'id, H, M> for Option<T>
+where
+    H: Host + ?Sized,
+    T: Term<'id, H, M>,
+{
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+        if let Some(term) = self {
+            term.lower(cx);
+        }
+    }
+}
+
+/// Implement sequence [`Term`] for an array of terms.
+impl<'id, H, M, T, const N: usize> Term<'id, H, M> for [T; N]
+where
+    H: Host + ?Sized,
+    T: Term<'id, H, M>,
+{
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+        for term in self {
+            term.lower(cx);
+        }
+    }
+}
+
+/// Implement sequence [`Term`] for a [`Vec`] of terms.
+impl<'id, H, M, T> Term<'id, H, M> for Vec<T>
+where
+    H: Host + ?Sized,
+    T: Term<'id, H, M>,
+{
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+        for term in self {
+            term.lower(cx);
+        }
+    }
+}

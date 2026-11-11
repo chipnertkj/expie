@@ -1,6 +1,6 @@
 //! Transient lifetime-bound state for mutation by [`Term`]s during elaboration.
 
-use crate::{Hierarchy, Host, Term};
+use crate::{Hierarchy, Host, Marker, MarkerRef, term::ErasedTerm};
 
 mod cx;
 
@@ -40,6 +40,14 @@ impl<'id, H: Host> Scope<'id, H> {
         let store = host.new_store();
         Self { hierarchy, store }
     }
+
+    /// Create a new [`Marker`] in this scope.
+    #[must_use = "marker must be consumed by target entity"]
+    pub fn marker(&mut self) -> (Marker<'id>, MarkerRef<'id>) {
+        let marker = self.hierarchy.marker();
+        let marker_ref = *marker.downgrade();
+        (marker, marker_ref)
+    }
 }
 
 /// An extension trait for [`Host`] that provides a method for writing code
@@ -66,19 +74,22 @@ pub trait HostScope: Host {
     ///
     /// [lowered]: crate::Term::lower
     /// [`NodeId::erased`]: crate::NodeId::erased
-    fn scope<T, TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
+    fn scope<TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
     where
-        T: for<'id> Term<'id, Self, M>,
-        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> T,
+        // NOTE: the reason we force Box<dyn ...> here is because it is currently impossible to
+        // return a GAT from FnOnce. See RFC3216 https://github.com/rust-lang/rust/issues/97362.
+        //
+        // TODO: alternatively, we could make TFn and OFn one function, but this forces the user
+        // to manually 1. construct the ScopeCx from &mut Scope and 2. call Term::lower.
+        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> Box<dyn ErasedTerm<'id, Self, M> + 'id>,
         OFn: for<'id> FnOnce(Self::Output<'id>) -> O;
 }
 
 /// Native blanket implementation for all [`Host`]s.
 impl<H: Host> HostScope for H {
-    fn scope<T, TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
+    fn scope<TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
     where
-        T: for<'id> Term<'id, Self, M>,
-        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> T,
+        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> Box<dyn ErasedTerm<'id, Self, M> + 'id>,
         OFn: for<'id> FnOnce(Self::Output<'id>) -> O,
     {
         generativity::make_guard!(id_guard);
@@ -89,7 +100,7 @@ impl<H: Host> HostScope for H {
         let term = term_fn(&mut scope);
         // Create a fresh scope context and lower the received term.
         let mut cx = ScopeCx::new(&mut scope);
-        term.lower(&mut cx);
+        term.lower_boxed(&mut cx);
         // Finalize and return host output.
         let Scope { hierarchy, store } = scope;
         let host_output = self.finalize_scope(hierarchy, store);

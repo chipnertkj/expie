@@ -9,41 +9,46 @@ pub use self::{
     host::Host,
     identity::{Hierarchy, Marker, MarkerRef, NodeId},
     scope::{HostScope, Scope, ScopeCx},
-    term::Term,
+    term::{ErasedTerm, Term, TermIter},
 };
 
 /// Call `$m!(A, B, ...)` for each non-empty prefix of the identifier list.
 ///
 /// # Syntax
 ///
-/// ```ignore
-/// // Note the `...` (for example purposes).
-/// // This has to be a real type in actual code.
-/// for_each_tuple!(macro_name for (A, B, ...))
+/// ```
+/// # use expie_elab::for_each_tuple;
+/// # macro_rules! macro_name { ($($args:ident),*) => {;} }
+/// for_each_tuple!(macro_name for (A, B, C));
 /// ```
 ///
 /// This calls:
 ///
-/// ```ignore
-/// macro_name!(A)
-/// macro_name!(A, B)
-/// macro_name!(A, B, ...) // and so on
+/// ```
+/// # macro_rules! macro_name { ($($args:ident),*) => {;} }
+/// macro_name!(A);
+/// macro_name!(A, B);
+/// macro_name!(A, B, C);
 /// ```
 ///
 /// Or optionally:
 ///
-/// ```ignore,
-/// for_each_tuple!(macro_name for (A, B, ...) @ Type)
+/// ```
+/// # use expie_elab::for_each_tuple;
+/// # macro_rules! macro_name { ($($args:ident),* @ Type) => {;} }
+/// for_each_tuple!(macro_name for (A, B, C) @ Type);
 /// ```
 ///
 /// ...which appends `@ Type` to the end of the input to the macro, as in:
 ///
-/// ```ignore
-/// // (...)
-/// macro_name!(A, B, ... @ Type)
+/// ```
+/// # macro_rules! macro_name { ($($args:ident),* @ Type) => {;} }
+/// macro_name!(A @ Type);
+/// macro_name!(A, B @ Type);
+/// macro_name!(A, B, C @ Type);
 /// ```
 ///
-/// `Type` can be any identifier (but not any type). This allows for more
+/// `Type` can be any identifier (but not any type) – this allows for more
 /// expressive token manipulation than with `$_:ty`.
 ///
 /// It is recommended to name the target macro by prefixing it with `impl_*` –

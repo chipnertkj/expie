@@ -77,4 +77,16 @@ impl<'id, 'scope, H: Host> ScopeCx<'id, 'scope, H> {
     pub const fn target_node(&self) -> Option<NodeId<'id>> {
         self.target_node
     }
+
+    /// Get a direct reference to the [`Host::Store`] of the [`Scope`].
+    #[must_use = "getter"]
+    pub const fn store(&self) -> &H::Store<'id> {
+        &self.scope.store
+    }
+
+    /// Get a mutable direct reference to the [`Host::Store`] of the [`Scope`].
+    #[must_use = "getter"]
+    pub const fn store_mut(&mut self) -> &mut H::Store<'id> {
+        &mut self.scope.store
+    }
 }

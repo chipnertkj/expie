@@ -138,4 +138,10 @@ impl<'id> Hierarchy<'id> {
         let scoped_index = marker_ref.to_index();
         *self.markers.get(scoped_index)
     }
+
+    /// Create a new, unmapped [`Marker`] in this hierarchy.
+    #[must_use = "marker must be consumed by target entity"]
+    pub(crate) fn marker(&mut self) -> Marker<'id> {
+        Marker(MarkerRef(self.markers.push(None)))
+    }
 }
