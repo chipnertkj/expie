@@ -17,7 +17,9 @@
 //! on the other hand, strips away semantic details and translates them into
 //! instructions for the next step in the overall process.
 
-use crate::{Host, ScopeCx, for_each_tuple_12};
+use std::convert::Infallible;
+
+use crate::{Host, ScopeCx, effect::EffectDialect, for_each_tuple_12};
 
 /// A term is a unit of data in an Abstract Syntax Tree (AST).
 ///
@@ -29,14 +31,19 @@ use crate::{Host, ScopeCx, for_each_tuple_12};
 /// into the appropriate implementation details specific to a particular
 /// [`Host`].
 ///
+/// [`lower`]: Self::lower
+///
 /// A term is supposed to work as an abstraction of a domain-specific feature.
 /// Its fields / variants and methods should act as an interface in
 /// communicating intent. `lower` provides the glue between that ideal and the
 /// reality of the software components a term integrates with.
 ///
-/// [`lower`]: Self::lower
-// TODO: explain `M` once messages are implemented.
-pub trait Term<'id, H: Host + ?Sized, M> {
+/// Terms are parameterized by the [`EffectDialect`] `D` and the effect type
+/// `E`. Please see the [`effect`] module for more information on the effects
+/// system.
+///
+/// [`effect`]: crate::effect
+pub trait Term<'id, H, D, E> {
     /// Lower this term inside a [`ScopeCx`].
     ///
     /// *Lowering* is the process of mutating the [`Scope`] (which the scope
@@ -88,13 +95,17 @@ pub trait Term<'id, H: Host + ?Sized, M> {
     /// host and that term to correctly orchestrate and interpret those
     /// relationships. This pattern may be referred to as a **"polysemous
     /// term"**.
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>);
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect;
 }
 
-/// Object-safe lowering for a [`Box`]ed [`Term`].
+/// Dyn-compatible lowering of [`Term`]s via [`Box`].
 ///
 /// [`Term::lower`] takes `self` as a parameter, which implies `Self: Sized`.
-/// This prevents types like `dyn Term` from being used in reguar term position.
+/// This prevents types like `dyn Term` from being used in regular term
+/// position.
 ///
 /// `ErasedTerm` provides an escape hatch for this limitation, allowing one to
 /// take a boxed `Self` term and lower it.
@@ -103,32 +114,72 @@ pub trait Term<'id, H: Host + ?Sized, M> {
 /// [`ErasedTerm::lower_boxed`] is replaced with a boxed `ErasedTerm` / `Self`,
 /// enabling this pattern. Compatibility with `Term` is achieved via blanket
 /// implementation of `ErasedTerm` for every [`Sized`] term.
-pub trait ErasedTerm<'id, H: Host + ?Sized, M> {
-    /// [`Term::lower`] equivalent for a [`?Sized`](Sized) [`Term`].
-    /// Takes a [`Box`]ed [`ErasedTerm`] as the argument instead.
-    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H>);
+pub trait ErasedTerm<'id, H, D, E> {
+    /// [`Term::lower`] for a [`?Sized`](Sized) [`Term`] *equivalent* –
+    /// it takes a boxed [`ErasedTerm`] as the argument instead.
+    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect;
 }
 
 /// Blanket implementation of [`ErasedTerm`] for every [`Sized`] [`Term`].
-impl<'id, H, M, T> ErasedTerm<'id, H, M> for T
+impl<'id, H, D, E, T> ErasedTerm<'id, H, D, E> for T
 where
-    H: Host + ?Sized,
-    T: Term<'id, H, M>,
+    Self: Term<'id, H, D, E>,
 {
-    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         // Because T is Sized here, (*self) moves T out of the box cleanly.
         (*self).lower(cx);
     }
 }
 
-/// Blanket implementation of [`Term`] for every [`Box`]ed [`ErasedTerm`].
-impl<'id, H, M, T> Term<'id, H, M> for Box<T>
+/// Blanket implementation of [`Term`] for every [`ErasedTerm`] [`Box`].
+impl<'id, H, D, E, T> Term<'id, H, D, E> for Box<T>
 where
-    H: Host + ?Sized,
-    T: ErasedTerm<'id, H, M>,
+    T: ErasedTerm<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         self.lower_boxed(cx);
+    }
+}
+
+/// Type alias for a trait object of [`ErasedTerm`] with an additional trait
+/// object lifetime `'id`.
+pub type DynTerm<'id, H, D, E> = dyn ErasedTerm<'id, H, D, E> + 'id;
+
+/// Type alias for a [`DynTerm`] that produces no [effects] (`E = Infallible`)
+/// and does not support any [`EffectDialect`] (`D = Infallible`).
+///
+/// [effects]: crate::effect
+pub type PureDynTerm<'id, H> = DynTerm<'id, H, Infallible, Infallible>;
+
+/// Extension trait providing type erasure for [`Term`]s.
+pub trait TermErasure {
+    /// Type erase the [`Term`] `self` into a boxed [`ErasedTerm`].
+    fn erase<'id, H, D, E>(self) -> Box<DynTerm<'id, H, D, E>>
+    where
+        Self: Term<'id, H, D, E> + 'id,
+        H: Host,
+        D: EffectDialect;
+}
+
+impl<T> TermErasure for T {
+    fn erase<'id, H, D, E>(self) -> Box<DynTerm<'id, H, D, E>>
+    where
+        Self: Term<'id, H, D, E> + 'id,
+        H: Host,
+        D: EffectDialect,
+    {
+        Box::new(self)
     }
 }
 
@@ -148,13 +199,16 @@ pub struct TermIter<I>(
 );
 
 /// Implement sequence [`Term`] for [`TermIter`].
-impl<'id, H, M, T, I> Term<'id, H, M> for TermIter<I>
+impl<'id, H, D, E, T, I> Term<'id, H, D, E> for TermIter<I>
 where
-    H: Host + ?Sized,
-    T: Term<'id, H, M>,
+    T: Term<'id, H, D, E>,
     I: IntoIterator<Item = T>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         for item in self.0 {
             item.lower(cx);
         }
@@ -186,12 +240,15 @@ where
 /// Implement sequence [`Term`] for a tuple of terms.
 macro_rules! impl_tuple_term {
     ($($name:ident),* $(,)?) => {
-        impl<'id, HOST, MESSAGE, $($name),*> Term<'id, HOST, MESSAGE> for ($($name),*,)
+        impl<'id, HOST, DIALECT, EFFECT, $($name),*> Term<'id, HOST, DIALECT, EFFECT> for ($($name),*,)
         where
-            HOST: Host + ?Sized,
-            $($name: Term<'id, HOST, MESSAGE>),*
+            $($name: Term<'id, HOST, DIALECT, EFFECT>),*
         {
-            fn lower(self, cx: &mut ScopeCx<'id, '_, HOST>) {
+            fn lower(self, cx: &mut ScopeCx<'id, '_, HOST, DIALECT, EFFECT>)
+            where
+                HOST: Host,
+                DIALECT: EffectDialect,
+            {
                 #[allow(non_snake_case, reason = "macro expansion")]
                 let ($($name),*,) = self;
                 $($name.lower(cx);)*
@@ -203,12 +260,15 @@ macro_rules! impl_tuple_term {
 for_each_tuple_12!(impl_tuple_term);
 
 /// Implement sequence [`Term`] for [`Option`] of a term.
-impl<'id, H, M, T> Term<'id, H, M> for Option<T>
+impl<'id, H, D, E, T> Term<'id, H, D, E> for Option<T>
 where
-    H: Host + ?Sized,
-    T: Term<'id, H, M>,
+    T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         if let Some(term) = self {
             term.lower(cx);
         }
@@ -216,12 +276,15 @@ where
 }
 
 /// Implement sequence [`Term`] for an array of terms.
-impl<'id, H, M, T, const N: usize> Term<'id, H, M> for [T; N]
+impl<'id, H, D, E, T, const N: usize> Term<'id, H, D, E> for [T; N]
 where
-    H: Host + ?Sized,
-    T: Term<'id, H, M>,
+    T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         for term in self {
             term.lower(cx);
         }
@@ -229,12 +292,15 @@ where
 }
 
 /// Implement sequence [`Term`] for a [`Vec`] of terms.
-impl<'id, H, M, T> Term<'id, H, M> for Vec<T>
+impl<'id, H, D, E, T> Term<'id, H, D, E> for Vec<T>
 where
-    H: Host + ?Sized,
-    T: Term<'id, H, M>,
+    T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H>) {
+    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    where
+        H: Host,
+        D: EffectDialect,
+    {
         for term in self {
             term.lower(cx);
         }

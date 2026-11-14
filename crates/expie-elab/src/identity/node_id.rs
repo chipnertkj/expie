@@ -37,8 +37,9 @@ impl<'id> NodeId<'id> {
     /// [invariant lifetime].
     ///
     /// This allows the ID to be used outside the bounds of the lifetime guard.
-    /// This also means that it is no longer possible to guarantee that the ID
-    /// accurately represents the original node it referenced.
+    /// This also means that, after this call, it is no longer statically
+    /// guaranteed that the ID accurately represents the original
+    /// node it referenced.
     ///
     /// [invariant lifetime]: generativity::Guard
     #[must_use = "conversion to a lifetime-erased identifier"]

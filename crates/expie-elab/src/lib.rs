@@ -1,16 +1,37 @@
 #![doc = include_str!("../README.md")]
 
+mod effect;
 mod host;
 mod identity;
 mod scope;
 mod term;
 
 pub use self::{
+    effect::{EffectDialect, Effects, MapEffect, TermEffectMapping},
     host::Host,
     identity::{Hierarchy, Marker, MarkerRef, NodeId},
-    scope::{HostScope, Scope, ScopeCx},
-    term::{ErasedTerm, Term, TermIter},
+    scope::{HostScope, PureTermFnOnce, Scope, ScopeCx, ScopeOutputFnOnce, TermFnOnce},
+    term::{DynTerm, ErasedTerm, PureDynTerm, Term, TermErasure, TermIter},
 };
+
+/// Prelude that brings crate-defined traits into scope using unnamed import
+/// syntax (`use Trait as _;`). This allows you to use the provided methods
+/// without polluting your crate's local namespace.
+///
+/// ```
+/// // try:
+/// use expie_elab::trait_prelude::*;
+/// ```
+///
+/// Contains common [`Term`] / [`Scope`] operations related to:
+/// - [`Host`] scope creation;
+/// - [`Term`] erasure, lowering;
+/// - [`Effects`] system effect mapping.
+pub mod trait_prelude {
+    pub use crate::{
+        ErasedTerm as _, HostScope as _, Term as _, TermEffectMapping as _, TermErasure as _,
+    };
+}
 
 /// Call `$m!(A, B, ...)` for each non-empty prefix of the identifier list.
 ///

@@ -2,7 +2,9 @@
 //!
 //! [`Term`]: crate::Term
 
-use crate::{Hierarchy, Host, Marker, MarkerRef, term::ErasedTerm};
+use crate::{
+    DynTerm, Effects, Hierarchy, Host, Marker, MarkerRef, PureDynTerm, effect::EffectDialect,
+};
 
 mod cx;
 
@@ -21,7 +23,7 @@ pub use self::cx::ScopeCx;
 /// elaboration (lowering). Once all terms have been lowered, the scope is
 /// finalized by the `scope` call and forwarded to the host for finalization.
 #[derive(derive_more::Debug)]
-pub struct Scope<'id, H: Host + ?Sized> {
+pub struct Scope<'id, H: Host> {
     /// Identity allocations for terms in this scope.
     /// Note that entity count may not necessarily match the number of terms
     /// [lowered] in this scope.
@@ -55,11 +57,73 @@ impl<'id, H: Host> Scope<'id, H> {
     }
 }
 
-/// An extension trait for [`Host`] that provides [a method] for writing code
-/// scoped by an invariant [generative lifetime guard].
+/// Trait for [`FnOnce`] instances that take a mutable reference to a [`Scope`]
+/// and return a boxed [`DynTerm`].
+///
+/// # Note
+///
+/// The reason we force `Box<DynTerm<...>>` here is because it is currently
+/// impossible to return a GAT from `FnOnce` (etc.). See [RFC3216].
+///
+/// [RFC3216]: https://github.com/rust-lang/rust/issues/97362
+///
+/// TODO: alternatively, we could make `TFn` and `OFn` in [`HostScope::scope`]
+/// one function, but this forces the caller to manually:
+///   1. construct the [`ScopeCx`] from `&mut Scope`, and;
+///   2. call [`Term::lower`] on the constructed `ScopeCx`.
+///
+/// Consider alternatives...?
+///
+/// [`Term::lower`]: crate::Term::lower
+pub trait TermFnOnce<'id, H, D, E>
+where
+    Self: FnOnce(&mut Scope<'id, H>) -> Box<DynTerm<'id, H, D, E>>,
+    H: ?Sized,
+{
+}
+impl<'id, T, H, D, E> TermFnOnce<'id, H, D, E> for T
+where
+    T: FnOnce(&mut Scope<'id, H>) -> Box<DynTerm<'id, H, D, E>>,
+    H: ?Sized,
+{
+}
+
+/// Trait for [`FnOnce`] instances that take a mutable reference to a [`Scope`]
+/// and return a boxed [`PureDynTerm`].
+///
+/// This is equivalent to [`TermFnOnce`], plus bounds from `PureDynTerm`.
+pub trait PureTermFnOnce<'id, H>
+where
+    Self: FnOnce(&mut Scope<'id, H>) -> Box<PureDynTerm<'id, H>>,
+    H: ?Sized,
+{
+}
+impl<'id, T, H> PureTermFnOnce<'id, H> for T
+where
+    T: FnOnce(&mut Scope<'id, H>) -> Box<PureDynTerm<'id, H>>,
+    H: ?Sized,
+{
+}
+
+/// Trait for [`FnOnce`] instances that take a [`Host::Output`] and return an
+/// arbitrary value `O`.
+pub trait ScopeOutputFnOnce<'id, H, O>
+where
+    Self: FnOnce(H::Output<'id>) -> O,
+    H: ?Sized + Host,
+{
+}
+impl<'id, T, H, O> ScopeOutputFnOnce<'id, H, O> for T
+where
+    T: FnOnce(H::Output<'id>) -> O,
+    H: ?Sized + Host,
+{
+}
+
+/// An extension trait for [`Host`] that provides a method, [`Self::scope`], for
+/// writing code scoped by an invariant [generative lifetime guard].
 ///
 /// [generative lifetime guard]: generativity::make_guard!
-/// [a method]: Self::scope
 pub trait HostScope: Host {
     /// Create a new [`Scope`] and lower a [`Term`] inside it. Both closures
     /// execute behind an invariant [generative lifetime guard].
@@ -77,28 +141,25 @@ pub trait HostScope: Host {
     /// The return value `O` cannot reference `'id`.
     /// This means that `output_fn` cannot smuggle out any data that is valid
     /// only within this `scope` call, with the exception of explicitly
-    /// *lifetime-erased* data. Node identifiers provide [`NodeId::erased`] for
-    /// this purpose.
+    /// *lifetime-erased* data – e.g. node identifiers provide
+    /// [`NodeId::erased`] for this purpose.
     ///
     /// [lowered]: crate::Term::lower
     /// [`NodeId::erased`]: crate::NodeId::erased
-    fn scope<TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
+    fn scope<TFn, O, OFn, D, E>(&self, term_fn: TFn, output_fn: OFn) -> O
     where
-        // NOTE: the reason we force Box<dyn ...> here is because it is currently impossible to
-        // return a GAT from FnOnce. See RFC3216 https://github.com/rust-lang/rust/issues/97362.
-        //
-        // TODO: alternatively, we could make TFn and OFn one function, but this forces the user
-        // to manually 1. construct the ScopeCx from &mut Scope and 2. call Term::lower.
-        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> Box<dyn ErasedTerm<'id, Self, M> + 'id>,
-        OFn: for<'id> FnOnce(Self::Output<'id>) -> O;
+        TFn: for<'id> TermFnOnce<'id, Self, D, E>,
+        OFn: for<'id> ScopeOutputFnOnce<'id, Self, O>,
+        D: EffectDialect;
 }
 
 /// Native blanket implementation for all [`Host`]s.
 impl<H: Host> HostScope for H {
-    fn scope<TFn, O, OFn, M>(&self, term_fn: TFn, output_fn: OFn) -> O
+    fn scope<TFn, O, OFn, D, E>(&self, term_fn: TFn, output_fn: OFn) -> O
     where
-        TFn: for<'id> FnOnce(&mut Scope<'id, Self>) -> Box<dyn ErasedTerm<'id, Self, M> + 'id>,
-        OFn: for<'id> FnOnce(Self::Output<'id>) -> O,
+        TFn: for<'id> TermFnOnce<'id, Self, D, E>,
+        OFn: for<'id> ScopeOutputFnOnce<'id, Self, O>,
+        D: EffectDialect,
     {
         generativity::make_guard!(id_guard);
         // Initialize scope state and create a scope context for lowering.
@@ -107,11 +168,12 @@ impl<H: Host> HostScope for H {
         // Note that this does not receive a scope context.
         let term = term_fn(&mut scope);
         // Create a fresh scope context and lower the received term.
-        let mut cx = ScopeCx::new(&mut scope);
+        let mut effects = Effects::<D, E>::new();
+        let mut cx = ScopeCx::new(&mut scope, &mut effects);
         term.lower_boxed(&mut cx);
         // Finalize and return host output.
         let Scope { hierarchy, store } = scope;
-        let host_output = self.finalize_scope(hierarchy, store);
+        let host_output = self.finalize_scope(hierarchy, store, effects);
         // The final scope output `O` may not reference `'id`.
         // This means any data past this point must be explicitly
         // lifetime-erased by the caller.

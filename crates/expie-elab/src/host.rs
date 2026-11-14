@@ -2,7 +2,7 @@
 //!
 //! [`Term::lower`]: crate::Term::lower
 
-use crate::Hierarchy;
+use crate::{EffectDialect, Effects, Hierarchy};
 
 /// A host is the target provider for [`Term`] lowering.
 ///
@@ -64,10 +64,11 @@ pub trait Host {
     /// [`Store`]: Self::Store
     /// [`Term`]: crate::Term
     /// [`Term::lower`]: crate::Term::lower
-    fn finalize_scope<'id>(
+    fn finalize_scope<'id, D: EffectDialect, E>(
         &self,
         hierarchy: Hierarchy<'id>,
         store: Self::Store<'id>,
+        effects: Effects<D, E>,
     ) -> Self::Output<'id>
     where
         Self: Sized;
@@ -84,10 +85,11 @@ impl Host for std::convert::Infallible {
         panic!("acquired reference to std::convert::Infallible")
     }
 
-    fn finalize_scope<'id>(
+    fn finalize_scope<'id, D: EffectDialect, E>(
         &self,
         _hierarchy: Hierarchy<'id>,
         _store: Self::Store<'id>,
+        _effects: Effects<D, E>,
     ) -> Self::Output<'id> {
         self.new_store()
     }
