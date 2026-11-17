@@ -1,2 +1,11 @@
+# Cargo
 /target
 Cargo.lock
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+.env
+.env.*
