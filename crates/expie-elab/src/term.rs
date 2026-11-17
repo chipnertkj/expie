@@ -7,10 +7,12 @@
 //! [`Host::Store`].
 //!
 //! Because of the definition of `lower`, *lowering* can be thought of
-//! as a form of *elaboration* to the scope, on what a term's intent is. Both
+//! as a form of *elaboration* to the [`Pass`], on what a term's intent is. Both
 //! "terms" (in the sense of *terminology*, i.e. elaboration and
 //! lowering) refer to the same action, but express very different
 //! ideas.
+//!
+//! [`Pass`]: crate::Pass
 //!
 //! Elaboration is the process of building up an understanding of the
 //! desired result, by filling in details to achieve an outcome. Lowering,
@@ -19,7 +21,7 @@
 
 use std::convert::Infallible;
 
-use crate::{Host, ScopeCx, effect::EffectDialect, for_each_tuple_12};
+use crate::{Host, PassCx, effect::EffectDialect, for_each_tuple_12};
 
 /// A term is a unit of data in an Abstract Syntax Tree (AST).
 ///
@@ -44,15 +46,15 @@ use crate::{Host, ScopeCx, effect::EffectDialect, for_each_tuple_12};
 ///
 /// [`effect`]: crate::effect
 pub trait Term<'id, H, D, E> {
-    /// Lower this term inside a [`ScopeCx`].
+    /// Lower this term inside a [`PassCx`].
     ///
-    /// *Lowering* is the process of mutating the [`Scope`] (which the scope
-    /// context borrows) by providing it with additional information.
+    /// *Lowering* is the process of mutating the [`Pass`] (which the `PassCx`
+    /// borrows) by providing it with additional information.
     ///
-    /// [`Scope`]: crate::Scope
+    /// [`Pass`]: crate::Pass
     ///
-    /// A term writes information to the [`Host::Store`] (owned by the scope)
-    /// via methods exposed on the scope context.
+    /// A term writes information to the [`Host::Store`] (owned by the pass)
+    /// via methods exposed on the pass context.
     ///
     /// Conceptually, this information should come from:
     ///   1. The occurrence of this term in the lowering process.
@@ -61,9 +63,9 @@ pub trait Term<'id, H, D, E> {
     /// # Identity and hierarchy
     ///
     /// In order for lowered data to maintain identity (i.e. refer back to the
-    /// term it originates from), the scope provides identity registration
-    /// via [`ScopeCx::register`]. This allocates a unique [`NodeId`] and opens
-    /// a new [`ScopeCx`], with the new `Node` set as the *current target*.
+    /// term it originates from), the pass provides identity registration
+    /// via [`PassCx::register`]. This allocates a unique [`NodeId`] and opens
+    /// a new [`PassCx`], with the new `Node` set as the *current target*.
     ///
     /// [`NodeId`]: crate::NodeId
     ///
@@ -71,7 +73,7 @@ pub trait Term<'id, H, D, E> {
     /// is passed to `register` by the caller.
     ///
     /// This pattern allows for constructing hierarchies of nodes, as any node
-    /// registered using that inner context will be treated as a child of the
+    /// registered using that inner `PassCx` will be treated as a child of the
     /// current target node. This parent-child tree hierarchy may be later
     /// queried by the [`Host`] to resolve relationships.
     ///
@@ -95,7 +97,7 @@ pub trait Term<'id, H, D, E> {
     /// host and that term to correctly orchestrate and interpret those
     /// relationships. This pattern may be referred to as a **"polysemous
     /// term"**.
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect;
@@ -117,7 +119,7 @@ pub trait Term<'id, H, D, E> {
 pub trait ErasedTerm<'id, H, D, E> {
     /// [`Term::lower`] for a [`?Sized`](Sized) [`Term`] *equivalent* –
     /// it takes a boxed [`ErasedTerm`] as the argument instead.
-    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower_boxed(self: Box<Self>, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect;
@@ -128,12 +130,12 @@ impl<'id, H, D, E, T> ErasedTerm<'id, H, D, E> for T
 where
     Self: Term<'id, H, D, E>,
 {
-    fn lower_boxed(self: Box<Self>, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower_boxed(self: Box<Self>, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,
     {
-        // Because T is Sized here, (*self) moves T out of the box cleanly.
+        // Because T is Sized here, (*self) moves T out of the box.
         (*self).lower(cx);
     }
 }
@@ -143,7 +145,7 @@ impl<'id, H, D, E, T> Term<'id, H, D, E> for Box<T>
 where
     T: ErasedTerm<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,
@@ -204,7 +206,7 @@ where
     T: Term<'id, H, D, E>,
     I: IntoIterator<Item = T>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,
@@ -244,7 +246,7 @@ macro_rules! impl_tuple_term {
         where
             $($name: Term<'id, HOST, DIALECT, EFFECT>),*
         {
-            fn lower(self, cx: &mut ScopeCx<'id, '_, HOST, DIALECT, EFFECT>)
+            fn lower(self, cx: &mut PassCx<'id, '_, '_, HOST, DIALECT, EFFECT>)
             where
                 HOST: Host,
                 DIALECT: EffectDialect,
@@ -264,7 +266,7 @@ impl<'id, H, D, E, T> Term<'id, H, D, E> for Option<T>
 where
     T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,
@@ -280,7 +282,7 @@ impl<'id, H, D, E, T, const N: usize> Term<'id, H, D, E> for [T; N]
 where
     T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,
@@ -296,7 +298,7 @@ impl<'id, H, D, E, T> Term<'id, H, D, E> for Vec<T>
 where
     T: Term<'id, H, D, E>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, E>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, E>)
     where
         H: Host,
         D: EffectDialect,

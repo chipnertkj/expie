@@ -3,14 +3,14 @@
 mod effect;
 mod host;
 mod identity;
-mod scope;
+mod pass;
 mod term;
 
 pub use self::{
     effect::{EffectDialect, Effects, MapEffect, TermEffectMapping},
     host::Host,
     identity::{Hierarchy, Marker, MarkerRef, NodeId},
-    scope::{HostScope, PureTermFnOnce, Scope, ScopeCx, ScopeOutputFnOnce, TermFnOnce},
+    pass::{HostScope, Pass, PassCx},
     term::{DynTerm, ErasedTerm, PureDynTerm, Term, TermErasure, TermIter},
 };
 
@@ -23,7 +23,7 @@ pub use self::{
 /// use expie_elab::trait_prelude::*;
 /// ```
 ///
-/// Contains common [`Term`] / [`Scope`] operations related to:
+/// Contains common [`Term`] / [`Pass`] operations related to:
 /// - [`Host`] scope creation;
 /// - [`Term`] erasure, lowering;
 /// - [`Effects`] system effect mapping.

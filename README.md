@@ -6,7 +6,7 @@ This is an experimental GUI framework built with Rust for my own personal usage.
 
 Please note this library may feel rather unusual in comparison to prior art.
 
-I use fancy words like *terms*, *scopes*, etc. to describe some of the concepts, but at the end of the day, this is all done in the name of allowing you to extend any part of the framework with your own solutions. Of course, the provided parts are already well integrated *with* each other, and assume you'll be using them *on top of* each other, but I did my best in making that idea come to life.
+I use fancy words like *terms*, *scopes*, *passes*, etc. to describe some of the concepts, but at the end of the day, this is all done in the name of allowing you to extend any part of the framework with your own solutions. Of course, the provided parts are already well integrated *with* each other, and assume you'll be using them *on top of* each other, but I did my best in making that idea come to life.
 
 Big part of this was the thought that perhaps you shouldn't have to wait for a PR merge, or even have to clone and locally edit the library, to prototype with your own ideas. Not everything can be adjusted freely, but the framework does give you some room for expression.
 

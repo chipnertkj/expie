@@ -1,6 +1,6 @@
-//! [`Scope`] pass effect system.
+//! [`Pass`] effects system.
 //!
-//! [`Scope`]: crate::Scope
+//! [`Pass`]: crate::Pass
 //!
 //! An *effect* is a singular data point – it encodes additional information
 //! about the data [lowered] to a [`Store`].
@@ -8,13 +8,12 @@
 //! [lowered]: crate::Term::lower
 //! [`Store`]: crate::Host::Store
 //!
-//! All effect must be *bound* to the scope through the means of an
-//! [`EffectDialect`], which defines the binding process via
-//! [`Binding`].
+//! All effects must be *bound* to the pass through the means of an
+//! [`EffectDialect`], which defines the binding mechanism via [`Binding`].
 //!
 //! [`Binding`]: EffectDialect::Binding
 //!
-//! The effect system provides capabilities for constraining parts of a generic
+//! The effects system provides capabilities for constraining parts of a generic
 //! [`Term`] structure to a particular effect type `E` and dialect type `D`, as
 //! well as ways to map between different effect types for the purposes of
 //! enabling *effect encapsulation* via [`map_effect`].
@@ -23,17 +22,17 @@
 
 use std::convert::Infallible;
 
-use crate::{Host, ScopeCx, Term};
+use crate::{Host, PassCx, Term};
 
 /// An *effect dialect* defines how [effects](self) are bound to the
-/// [`Scope`].
+/// [`Pass`].
 ///
-/// [`Scope`]: crate::Scope
+/// [`Pass`]: crate::Pass
 ///
-/// The [`ScopeCx`] is able to modify the [`Effects`] structure for an open
+/// The [`PassCx`] is able to modify the [`Effects`] structure for an open
 /// scope. It is generic over both the dialect `D` and the effect type `E`,
 /// but only the effect type may change over the course of a scope – the dialect
-/// `D` is bound by the [`scope`](crate::scope::HostScope::scope) call.
+/// `D` is bound by the [`scope`](crate::HostScope::scope) call.
 ///
 /// The dialect itself defines an associated [`Binding`] type, which is used to
 /// encode an effect – this is referred to as *effect binding*.
@@ -42,7 +41,7 @@ use crate::{Host, ScopeCx, Term};
 ///
 /// Bindings are meant to be used as wrappers for the actual effect type `E`
 /// (bindings are generic over `E`). Once `Effects` reaches
-/// [`Host::finalize_scope`] (after all [`Term`]s have been lowered), `Binding`
+/// [`Host::finalize_pass`] (after all [`Term`]s have been lowered), `Binding`
 /// informs the host on how to interpret the effects that have been lowered into
 /// `Effects` under this dialect.
 ///
@@ -52,15 +51,15 @@ pub trait EffectDialect {
     /// An *effect binding* encodes an effect `E` under this dialect.
     ///
     /// The binding type informs the host on how to interpret an effect provided
-    /// to [`Effects`] by the [`ScopeCx`].
-    type Binding<E>: std::fmt::Debug;
+    /// to [`Effects`] by the [`PassCx`].
+    type Binding<'id, E>;
 
     /// Provides a mapping operation between [`Binding`]s of different effect
     /// types `E`. Here, `Old` is the effect type of the original
     /// binding, and `New` is the effect type of the mapped binding.
     ///
     /// [`Binding`]: Self::Binding
-    fn map_effect<Old, New, F>(binding: Self::Binding<Old>, map: F) -> Self::Binding<New>
+    fn map_effect<Old, New, F>(binding: Self::Binding<'_, Old>, map: F) -> Self::Binding<'_, New>
     where
         F: Clone + Fn(Old) -> New;
 }
@@ -73,9 +72,9 @@ pub trait EffectDialect {
 ///
 /// [`Binding`]: EffectDialect::Binding
 impl EffectDialect for Infallible {
-    type Binding<E> = Self;
+    type Binding<'id, E> = Self;
 
-    fn map_effect<Old, New, F>(binding: Self::Binding<Old>, _map: F) -> Self::Binding<New>
+    fn map_effect<Old, New, F>(binding: Self::Binding<'_, Old>, _map: F) -> Self::Binding<'_, New>
     where
         F: Fn(Old) -> New,
     {
@@ -83,26 +82,37 @@ impl EffectDialect for Infallible {
     }
 }
 
-/// A collection of [effects](self) *bound* to the [`Scope`] for a particular
+/// A collection of [effects](self) *bound* to the [`Pass`] for a particular
 /// effect type `E` and [`EffectDialect`] `D`.
 ///
-/// [`Scope`]: crate::Scope
+/// [`Pass`]: crate::Pass
 ///
 /// The current effect type `E` can be mapped (according to the dialect) via
 /// [`Self::map_effect`]. The dialect `D` remains the same across the entire
-/// [`scope`](crate::scope::HostScope::scope) call.
+/// [`scope`](crate::HostScope::scope) call.
 ///
 /// These effects are forwarded to the [`Host`], specifically
-/// [`Host::finalize_scope`], once all [`Term`]s have been lowered for a given
-/// scope. The host is then responsible for interpreting the effects, in
+/// [`Host::finalize_pass`], once all [`Term`]s have been lowered for a given
+/// pass. The host is then responsible for interpreting the effects, in
 /// accordance with the rules specified by the [`EffectDialect::Binding`].
-#[derive(Debug)]
-pub struct Effects<D: EffectDialect, E> {
+pub struct Effects<'id, D: EffectDialect, E> {
     /// All effects pushed to this collection.
-    entries: Vec<D::Binding<E>>,
+    entries: Vec<D::Binding<'id, E>>,
 }
 
-impl<D: EffectDialect, E> Effects<D, E> {
+impl<'id, D, E> std::fmt::Debug for Effects<'id, D, E>
+where
+    D: EffectDialect,
+    D::Binding<'id, E>: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Effects")
+            .field("entries", &self.entries)
+            .finish()
+    }
+}
+
+impl<'id, D: EffectDialect, E> Effects<'id, D, E> {
     /// Create an empty collection of effects.
     #[must_use = "constructor does not have side effects"]
     pub(crate) const fn new() -> Self {
@@ -113,7 +123,7 @@ impl<D: EffectDialect, E> Effects<D, E> {
 
     /// Map the current effect type `E` to a new effect type `New` according to
     /// the [`EffectDialect`].
-    pub(crate) fn map_effect<New, F>(self, map: F) -> Effects<D, New>
+    pub(crate) fn map_effect<New, F>(self, map: F) -> Effects<'id, D, New>
     where
         F: Clone + Fn(E) -> New,
     {
@@ -129,17 +139,23 @@ impl<D: EffectDialect, E> Effects<D, E> {
     /// Push a new [`Binding`] to the collection.
     ///
     /// [`Binding`]: EffectDialect::Binding
-    pub(crate) fn push(&mut self, binding: D::Binding<E>) {
+    pub(crate) fn push(&mut self, binding: D::Binding<'id, E>) {
         self.entries.push(binding);
     }
 
     /// Extend the collection with the contents of an iterator.
-    pub(crate) fn extend(&mut self, bindings: impl IntoIterator<Item = D::Binding<E>>) {
+    pub(crate) fn extend(&mut self, bindings: impl IntoIterator<Item = D::Binding<'id, E>>) {
         self.entries.extend(bindings);
     }
 
+    /// Convert the collection into a vector of bindings.
+    #[must_use = "result of a conversion"]
+    pub fn into_vec(self) -> Vec<D::Binding<'id, E>> {
+        self.entries
+    }
+
     /// Get an iterator over the collection of effects.
-    pub fn entries(&self) -> impl Iterator<Item = &D::Binding<E>> {
+    pub fn entries(&self) -> impl Iterator<Item = &D::Binding<'id, E>> {
         self.entries.iter()
     }
 
@@ -156,9 +172,9 @@ impl<D: EffectDialect, E> Effects<D, E> {
     }
 }
 
-impl<D: EffectDialect, E> IntoIterator for Effects<D, E> {
-    type Item = D::Binding<E>;
-    type IntoIter = std::vec::IntoIter<D::Binding<E>>;
+impl<'id, D: EffectDialect, E> IntoIterator for Effects<'id, D, E> {
+    type Item = D::Binding<'id, E>;
+    type IntoIter = std::vec::IntoIter<D::Binding<'id, E>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.entries.into_iter()
@@ -190,7 +206,7 @@ where
     F: Clone + Fn(Old) -> New,
     T: Term<'id, H, D, Old>,
 {
-    fn lower(self, cx: &mut ScopeCx<'id, '_, H, D, New>)
+    fn lower(self, cx: &mut PassCx<'id, '_, '_, H, D, New>)
     where
         H: Host,
         D: EffectDialect,
