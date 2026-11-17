@@ -5,24 +5,9 @@ use crate::Constraint;
 /// Newtype wrapper around a key used as a [`System`] variable.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, derive_more::Display, derive_more::From)]
 #[display("var:{_0}")]
-pub struct Var<K>(K);
+pub struct Var<K>(pub K);
 
 impl<K> Var<K> {
-    /// Create a new [`Var`] with the given key.
-    #[must_use = "constructor"]
-    pub const fn new(key: K) -> Self {
-        Self(key)
-    }
-}
-
-impl<K> Var<K> {
-    /// Unwrap the inner key.
-    #[must_use = "unwraps the inner key"]
-    pub fn into_key(self) -> K {
-        let Self(key) = self;
-        key
-    }
-
     /// Borrow the inner key.
     #[must_use = "getter"]
     pub const fn key(&self) -> &K {
@@ -34,14 +19,8 @@ impl<K> Var<K> {
     #[must_use = "mapping moves the original value"]
     pub fn map<O>(self, f: impl FnOnce(K) -> O) -> Var<O> {
         let Self(key) = self;
-        Var::new(f(key))
+        Var(f(key))
     }
-}
-
-/// Create a new [`Var`] with the given key.
-#[must_use = "constructor"]
-pub const fn var<K>(key: K) -> Var<K> {
-    Var::new(key)
 }
 
 /// A collection of [`Constraint`]s.

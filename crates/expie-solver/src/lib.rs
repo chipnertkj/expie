@@ -5,5 +5,5 @@ mod system;
 
 pub use self::{
     constraint::{AbsDiff, Constraint, LinearEq, Max, Min, Seed},
-    system::{System, Var, var},
+    system::{System, Var},
 };
