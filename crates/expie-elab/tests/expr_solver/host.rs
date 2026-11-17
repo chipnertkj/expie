@@ -1,55 +1,72 @@
-use expie_elab::{
-    EffectDialect, Effects, Hierarchy, Host, PureTermFnOnce, ScopeOutputFnOnce, trait_prelude::*,
-};
+use expie_elab::{EffectDialect, Effects, Hierarchy, Host, Pass, PureDynTerm, trait_prelude::*};
 
 use crate::{
-    expr::{Expr, Num, Op},
+    expr::{Expr, ExprStore, Num, PureExpr},
     solver::Solver,
 };
 
 /// Host for building and solving expressions.
+#[derive(Debug, Clone, Copy)]
 pub struct ExprHost;
 
 impl ExprHost {
-    pub const fn new() -> Self {
-        Self
+    /// Evaluate a [`Term`] expression constructed by `term_fn` and assert the
+    /// lowered [`Expr`] matches the `expected` value within tolerence.
+    ///
+    /// [`Term`]: expie_elab::Term
+    pub fn eval_assert<TFn>(expected: Num, term_fn: TFn)
+    where
+        TFn: for<'id> FnOnce(&mut Pass<'id, '_, Self>) -> Box<PureDynTerm<'id, Self>>,
+    {
+        Self::eval(term_fn, |mut o| o.assert_value(expected));
     }
 
-    /// Evaluate a term expression and assert the lowered expression matches the
-    /// expected value.
-    pub fn eval_assert_num<TFn>(&self, expected: Num, f: TFn)
+    /// Evaluate a [`Term`] expression constructed by `term_fn` and apply the
+    /// `output_fn` function to the lowered [`Expr`].
+    ///
+    /// [`Term`]: expie_elab::Term
+    pub fn eval<TFn, OFn, O>(term_fn: TFn, output_fn: OFn) -> O
     where
-        TFn: for<'id> PureTermFnOnce<'id, Self>,
+        TFn: for<'id> FnOnce(&mut Pass<'id, '_, Self>) -> Box<PureDynTerm<'id, Self>>,
+        OFn: for<'id> FnOnce(PureExpr<'id>) -> O,
     {
-        self.scope(f, |o| o.assert_value(expected));
-    }
-
-    /// Evaluate a term expression and apply an output function to the lowered
-    /// expression.
-    pub fn eval<TFn, OFn, O>(&self, term_fn: TFn, output_fn: OFn) -> O
-    where
-        TFn: for<'id> PureTermFnOnce<'id, Self>,
-        OFn: for<'id> ScopeOutputFnOnce<'id, Self, O>,
-    {
-        self.scope(term_fn, output_fn)
+        Self.scope(|mut pass, mut effects| {
+            let term = term_fn(&mut pass);
+            pass.cx(&mut effects, |mut cx| term.lower_boxed(&mut cx));
+            output_fn(pass.finalize(effects))
+        })
     }
 }
 
 impl Host for ExprHost {
-    type Store<'id> = Vec<Op<'id>>;
-    type Output<'id> = Expr<'id>;
+    type Store<'id> = ExprStore<'id>;
+    type Output<'id, D, E>
+        = Expr<'id, D, E>
+    where
+        D: EffectDialect + 'id,
+        E: 'id;
 
     fn new_store<'id>(&self) -> Self::Store<'id> {
-        Vec::new()
+        ExprStore::default()
     }
 
-    fn finalize_scope<'id, D: EffectDialect, E>(
+    fn finalize_pass<'id, D, E>(
         &self,
         hierarchy: Hierarchy<'id>,
-        ops: Self::Store<'id>,
-        _effects: Effects<D, E>,
-    ) -> Self::Output<'id> {
-        let values = Solver::new(&hierarchy, &ops).into_result();
-        Expr { hierarchy, values }
+        store: Self::Store<'id>,
+        effects: Effects<'id, D, E>,
+    ) -> Self::Output<'id, D, E>
+    where
+        D: EffectDialect + 'id,
+        E: 'id,
+    {
+        let ExprStore { ops, .. } = store;
+        let values = Solver::new(&hierarchy, &ops).into_result().collect();
+        Expr {
+            hierarchy,
+            ops,
+            values,
+            effects: effects.into_vec(),
+        }
     }
 }

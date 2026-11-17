@@ -1,14 +1,9 @@
-mod add;
-mod mark;
-mod mul;
-mod neg;
-mod pow;
-mod product;
-mod sum;
-mod value;
-mod var;
+//! Term types for building and solving expressions.
+
+mod op;
+mod track;
 
 pub use self::{
-    add::Add, mark::Mark, mul::Mul, neg::Neg, pow::Pow, product::Product, sum::Sum, value::Value,
-    var::Var,
+    op::{Op0, add, mark, mul, neg, pow, product, sum, value, var},
+    track::track,
 };

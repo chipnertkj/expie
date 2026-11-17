@@ -22,16 +22,13 @@ impl<'output, 'id> Solver<'output, 'id> {
     }
 
     /// Solve the expression and return the computed values for each node.
-    pub fn into_result(mut self) -> Vec<Num> {
+    pub fn into_result(mut self) -> impl Iterator<Item = Option<Num>> {
         let root = self
             .hierarchy
             .main_root()
             .expect("empty expression hierarchy");
         self.solve(root);
-        self.values
-            .into_iter()
-            .map(|v| v.expect("unresolved node"))
-            .collect()
+        self.values.into_iter()
     }
 
     /// Get the operation for a specific node.
