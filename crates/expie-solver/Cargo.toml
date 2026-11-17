@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+derive_more = { workspace = true, features = ["display", "from"] }
 
 [lints]
 workspace = true
