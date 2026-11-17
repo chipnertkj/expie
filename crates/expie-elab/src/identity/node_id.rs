@@ -68,7 +68,6 @@ impl<'id> Hierarchy<'id> {
     /// If `parent` is set to [`None`], the node will be treated as a *root
     /// node*.
     #[must_use = "newly allocated identifier, you probably want to keep this"]
-    // TODO: tighten this vis to future cx module
     pub(crate) fn push_node(&mut self, parent: Option<NodeId<'id>>) -> NodeId<'id> {
         // Push the node to the index vector.
         let node_index = self.nodes.push(Node {

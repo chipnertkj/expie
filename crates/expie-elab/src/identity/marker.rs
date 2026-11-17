@@ -104,7 +104,6 @@ impl<'id> Hierarchy<'id> {
     ///
     /// [`Node`]: crate::identity::Node
     #[must_use = "newly allocated identifier, you probably want to keep this"]
-    // TODO: tighten this vis to future cx module
     pub(crate) fn push_node_marked(
         &mut self,
         parent: Option<NodeId<'id>>,

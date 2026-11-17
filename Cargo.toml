@@ -31,6 +31,9 @@ deprecated_safe_2024 = { level = "deny", priority = 0 }
 missing_debug_implementations = { level = "warn", priority = 1 }
 missing_copy_implementations = { level = "warn", priority = 1 }
 
+[workspace.lints.rustdoc]
+private_intra_doc_links = "allow"
+
 [profile.dev]
 debug = 1
 # Subsecond hot-patch on Windows can overflow the main stack at opt-level 0
