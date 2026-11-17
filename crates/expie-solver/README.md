@@ -1,0 +1,9 @@
+TODO
+
+in the meantime try:
+
+```shell
+cargo doc --open --document-private-items
+```
+
+(might require >5 s attention span)
